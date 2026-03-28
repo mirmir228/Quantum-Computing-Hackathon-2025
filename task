@@ -1,0 +1,96 @@
+import numpy as np
+import scipy.sparse as sparse
+import time
+
+def solve(matrix: np.ndarray) -> np.ndarray:
+
+    n = matrix.shape[0]
+    start_time = time.time()
+    max_time = 9.5  # Оставляем запас секунд
+    
+  
+    if np.count_nonzero(matrix) < 0.1 * n * n:
+        Q_sparse = sparse.csr_matrix(matrix)
+        is_sparse = True
+    else:
+        Q_sparse = None
+        is_sparse = False
+    
+    
+    diag_Q = np.diag(matrix)
+    
+  
+    if n <= 1000:
+        T0 = 10.0
+        alpha = 0.95
+        lam = 0.5
+        max_inner = 1
+        check_interval = 10
+    elif n <= 5000:
+        T0 = 8.0
+        alpha = 0.97
+        lam = 0.6
+        max_inner = 1
+        check_interval = 50
+    else:
+        T0 = 5.0
+        alpha = 0.98
+        lam = 0.7
+        max_inner = 1
+        check_interval = 100
+    
+    T_min = 1e-8
+    
+
+    y = np.random.uniform(0, 1, n)
+    
+
+    best_x = (y > 0.5).astype(np.int8)
+    if is_sparse:
+        best_energy = best_x @ Q_sparse @ best_x
+    else:
+        best_energy = best_x @ matrix @ best_x
+    
+    T = T0
+    step_count = 0
+    
+
+    while time.time() - start_time < max_time and T > T_min:
+        for _ in range(max_inner):
+          
+            if is_sparse:
+                v = Q_sparse.dot(y)
+            else:
+                v = matrix.dot(y)
+            
+          
+            Phi = 2 * v - diag_Q * (2 * y - 1)
+            
+          
+            y_new = 1 / (1 + np.exp(Phi / T))
+     
+            y = (1 - lam) * y + lam * y_new
+        step_count += 1
+        if step_count % check_interval == 0:
+            x_current = (y > 0.5).astype(np.int8)
+            if is_sparse:
+                energy = x_current @ Q_sparse @ x_current
+            else:
+                energy = x_current @ matrix @ x_current
+            
+            if energy < best_energy:
+                best_energy = energy
+                best_x = x_current.copy()
+        
+  
+        T *= alpha
+    x_final = (y > 0.5).astype(np.int8)
+    if is_sparse:
+        final_energy = x_final @ Q_sparse @ x_final
+    else:
+        final_energy = x_final @ matrix @ x_final
+    
+    if final_energy < best_energy:
+        return x_final
+    else:
+        return best_x
