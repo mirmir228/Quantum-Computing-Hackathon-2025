@@ -1,0 +1,150 @@
+import sys
+from collections import deque
+from typing import Dict, List, Tuple, Set, Optional
+
+Edge = Tuple[int, int]
+Graph = Dict[int, List[int]]
+WavelengthUsage = Dict[int, Set[Edge]]
+
+def read_graph(graph_file) -> Graph:
+    with open(graph_file, 'r', encoding='utf-8') as f:
+        lines = [line.strip() for line in f if line.strip()]
+
+    if not lines:
+        return {}
+
+    try:
+        n, m = map(int, lines[0].split())
+    except ValueError:
+        return {}
+
+    edges = [tuple(map(int, line.split())) for line in lines[1:]]
+    graph = {i: [] for i in range(n)}
+    for u, v in edges:
+        if u in graph and v in graph:
+            graph[u].append(v)
+    return graph
+
+def read_requests(data_file) -> Tuple[int, List[Tuple[int, int]]]:
+    with open(data_file, 'r', encoding='utf-8') as f:
+        lines = [line.strip() for line in f if line.strip()]
+
+    if len(lines) < 2:
+        return 0, []
+
+    try:
+        num_wavelengths = int(lines[0])
+        num_requests = int(lines[1])
+    except ValueError:
+        return 0, []
+
+    requests = []
+    for line in lines[2:2 + num_requests]:
+        try:
+            requests.append(tuple(map(int, line.split())))
+        except ValueError:
+            continue
+
+    return num_wavelengths, requests
+
+def path_to_edges(path: List[int]) -> List[Edge]:
+    return list(zip(path, path[1:]))
+
+def find_path(graph: Graph, start: int, end: int, wavelength_usage: WavelengthUsage, wavelength: Optional[int] = None, exclude_edges: Optional[Set[Edge]] = None) -> Optional[List[int]]:
+    if start == end:
+        return [start]
+
+    queue = deque([(start, [start])])
+    visited = {start}
+
+    occupied_edges = wavelength_usage.get(wavelength, set()) if wavelength is not None else set()
+    excluded = exclude_edges if exclude_edges is not None else set()
+
+    while queue:
+        node, path = queue.popleft()
+
+        for neigh in graph.get(node, []):
+            edge = (node, neigh)
+
+            if edge not in excluded and edge not in occupied_edges:
+                if neigh == end:
+                    return path + [neigh]
+
+                if neigh not in visited:
+                    visited.add(neigh)
+                    queue.append((neigh, path + [neigh]))
+
+    return None
+
+def find_available_wavelength(graph: Graph, start: int, end: int, num_wavelengths: int, wavelength_usage: WavelengthUsage, exclude_edges: Optional[Set[Edge]] = None) -> Tuple[Optional[List[int]], Optional[int]]:
+    best_path = None
+    best_wavelength = None
+
+    for wavelength in range(num_wavelengths):
+        path = find_path(graph, start, end, wavelength_usage, wavelength=wavelength, exclude_edges=exclude_edges)
+
+        if path is not None:
+            best_path = path
+            best_wavelength = wavelength
+            break
+
+    return best_path, best_wavelength
+
+def solve(graph_file: str, data_file: str) -> Dict[Tuple[int, int], Dict[str, Dict[str, any]]]:
+    graph = read_graph(graph_file)
+    num_wavelengths, requests = read_requests(data_file)
+
+    if num_wavelengths == 0:
+        return {}
+
+    wavelength_usage: WavelengthUsage = {w: set() for w in range(num_wavelengths)}
+
+    mapping: Dict[Tuple[int, int], Dict[str, Dict[str, any]]] = {}
+
+    default_wavelength = 0
+
+    for src, dst in requests:
+
+        # 1. Поиск ОСНОВНОГО пути
+        primary_path, primary_wavelength = find_available_wavelength(
+            graph, src, dst, num_wavelengths, wavelength_usage
+        )
+
+        primary_info = {
+            'wavelength': primary_wavelength if primary_wavelength is not None else default_wavelength,
+            'path': primary_path if primary_path is not None else []}
+
+        primary_edges = set(path_to_edges(primary_path)) if primary_path else set()
+
+        backup_path = []
+        backup_wavelength = None
+
+        # 2. Поиск РЕЗЕРВНОГО пути
+if primary_path:
+            # Ищем резервный путь, не пересекающийся с основным
+            backup_path, backup_wavelength = find_available_wavelength(
+                graph, src, dst, num_wavelengths, wavelength_usage, exclude_edges=primary_edges
+            )
+
+        backup_info = {
+            'wavelength': backup_wavelength if backup_wavelength is not None else default_wavelength,
+            'path': backup_path if backup_path is not None else []
+        }
+
+        # 3. Регистрация занятости ребер
+        if primary_path and primary_wavelength is not None:
+            if 0 <= primary_wavelength < num_wavelengths:
+                wavelength_usage[primary_wavelength].update(primary_edges)
+
+        if backup_path and backup_wavelength is not None:
+            if 0 <= backup_wavelength < num_wavelengths:
+                backup_edges = set(path_to_edges(backup_path))
+                wavelength_usage[backup_wavelength].update(backup_edges)
+
+        # 4. Формирование результата
+        mapping[(src, dst)] = {
+            'primary': primary_info,
+            'backup': backup_info
+        }
+
+    return mapping
